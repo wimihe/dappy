@@ -7,21 +7,22 @@ import (
 	"net"
 	"time"
 
-	"gopkg.in/ldap.v3"
+	ldap "gopkg.in/ldap.v3"
 )
 
 // Client interface performs ldap auth operation
 type Client interface {
-	Auth(username, password string) error
+	Auth(username, password string) (map[string]string, error)
 }
 
 // Config to provide a dappy client.
 // All fields are required, except for Filter.
 type Config struct {
-	BaseDN string // base directory, ex. "CN=Users,DC=Company"
-	ROUser User   // the read-only user for initial bind
-	Host   string // the ldap host and port, ex. "ldap.directory.com:389"
-	Filter string // defaults to "sAMAccountName" for AD
+	BaseDN     string // base directory, ex. "CN=Users,DC=Company"
+	ROUser     User   // the read-only user for initial bind
+	Host       string // the ldap host and port, ex. "ldap.directory.com:389"
+	Filter     string // defaults to "sAMAccountName" for AD
+	Attributes []string
 }
 
 // User holds the name and pass required for initial read-only bind.
@@ -36,35 +37,46 @@ type client struct {
 }
 
 // Auth implementation for the Client interface
-func (c client) Auth(username, password string) error {
+func (c client) Auth(username, password string) (map[string]string, error) {
 	// establish connection
 	conn, err := connect(c.Host)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer conn.Close()
 
 	// perform initial read-only bind
 	if err = conn.Bind(c.ROUser.Name, c.ROUser.Pass); err != nil {
-		return err
+		return nil, err
 	}
+
+	attributes := append(c.Attributes, "dn")
 
 	// find the user attempting to login
 	results, err := conn.Search(ldap.NewSearchRequest(
 		c.BaseDN, ldap.ScopeWholeSubtree,
 		ldap.NeverDerefAliases,
 		0, 0, false, fmt.Sprintf("(%v=%v)", c.Filter, username),
-		[]string{}, nil,
+		attributes, nil,
 	))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(results.Entries) < 1 {
-		return errors.New("not found")
+		return nil, errors.New("not found")
 	}
 
 	// attempt auth
-	return conn.Bind(results.Entries[0].DN, password)
+	err = conn.Bind(results.Entries[0].DN, password)
+	if err != nil {
+		return nil, err
+	}
+
+	info := make(map[string]string, len(results.Entries[0].Attributes))
+	for _, attr := range c.Attributes {
+		info[attr] = results.Entries[0].GetAttributeValue(attr)
+	}
+	return info, nil
 }
 
 // New dappy client with the provided config

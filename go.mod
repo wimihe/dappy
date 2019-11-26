@@ -1,4 +1,4 @@
-module github.com/nerney/dappy
+module github.com/wimihe/dappy
 
 go 1.12
 
