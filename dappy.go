@@ -72,7 +72,8 @@ func (c client) Auth(username, password string) (map[string]string, error) {
 		return nil, err
 	}
 
-	info := make(map[string]string, len(results.Entries[0].Attributes))
+	info := make(map[string]string, len(results.Entries[0].Attributes)+1)
+	info["dn"] = results.Entries[0].DN
 	for _, attr := range c.Attributes {
 		info[attr] = results.Entries[0].GetAttributeValue(attr)
 	}
